@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式群組管理規範</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Harmony (Slate neutrals with a Teal accent) -->
+    <!-- Application Structure Plan: A single-page application with a top tab-based navigation for the three main law categories (憲法, 民法, 刑法), plus an Overview. Each category page features a side navigation for quick-jumping to specific chapters/articles. The "Overview" includes a donut chart visualizing rule distribution. Key processes like meeting procedures are visualized as an HTML/CSS flowchart. This structure is chosen to break down a dense, text-heavy document into manageable, easily navigable sections, improving user exploration and comprehension over a linear document. -->
+    <!-- Visualization & Content Choices: Report Info -> 憲法, 民法, 刑法 articles. Goal -> Organize/Inform. Viz -> Tabbed sections with accordion-style articles. Interaction -> Clicking tabs switches content, clicking article titles expands them. Justification -> Prevents overwhelming users with text. Library -> Vanilla JS. | Report Info -> Rule Distribution (# articles per section). Goal -> Inform. Viz -> Donut Chart. Interaction -> Hover tooltips show article counts. Justification -> Provides a quick visual summary of the document's structure. Library -> Chart.js. | Report Info -> Meeting Procedures. Goal -> Organize. Viz -> HTML/CSS Flowchart. Interaction -> Static visual guide. Justification -> More intuitive than plain text for procedural information. Library -> Tailwind CSS. | New Feature: LLM for rule explanation and scenario generation. Goal -> Inform/Engage. Viz -> Text output in expandable sections. Interaction -> Button click triggers API call, loading state, dynamic text display. Justification -> Enhances comprehension for complex legal-like text. Library -> Vanilla JS, Gemini API. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        .tab-active {
+            border-color: #0d9488; /* teal-600 */
+            color: #0d9488;
+            background-color: #f0fdfa; /* teal-50 */
+        }
+        .nav-link-active {
+            color: #0d9488;
+            font-weight: 700;
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .accordion-content {
+            display: none;
+        }
+        .highlight {
+            background-color: #fef08a; /* yellow-200 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 400px;
+            max-height: 50vh;
+        }
+        .gemini-output {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background-color: #ecfeff; /* cyan-50 */
+            border-left: 4px solid #22d3ee; /* cyan-400 */
+            color: #083344; /* cyan-950 */
+            border-radius: 0.25rem;
+            font-size: 0.95rem;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #0d9488; /* teal-600 */
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+        }
+        .section-summary-container, .ai-qa-output {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background-color: #ecfeff; /* cyan-50 */
+            border-left: 4px solid #22d3ee; /* cyan-400 */
+            color: #083344; /* cyan-950 */
+            border-radius: 0.25rem;
+            font-size: 0.95rem;
+            display: none; /* Hidden by default */
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900">公共 群組管理規範</h1>
+            <p class="mt-2 text-slate-600">一個清晰、互動的規範查閱平台</p>
+        </header>
+
+        <main class="bg-white rounded-xl shadow-lg p-4 sm:p-6 md:p-8">
+            <!-- TABS -->
+            <div class="mb-6 border-b border-slate-200">
+                <nav class="-mb-px flex flex-wrap gap-x-1 sm:gap-x-4" aria-label="Tabs">
+                    <button class="tab-button flex-grow sm:flex-grow-0 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-slate-500 hover:border-slate-300 hover:text-slate-700" data-tab="overview">總覽</button>
+                    <button class="tab-button flex-grow sm:flex-grow-0 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-slate-500 hover:border-slate-300 hover:text-slate-700" data-tab="constitution">憲法</button>
+                    <button class="tab-button flex-grow sm:flex-grow-0 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-slate-500 hover:border-slate-300 hover:text-slate-700" data-tab="civil">民法</button>
+                    <button class="tab-button flex-grow sm:flex-grow-0 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-slate-500 hover:border-slate-300 hover:text-slate-700" data-tab="criminal">刑法</button>
+                </nav>
+            </div>
+            
+            <div class="mb-6 flex flex-col sm:flex-row gap-2">
+                <input type="text" id="searchInput" placeholder="直接搜尋關鍵字..." class="w-full sm:w-2/3 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition">
+                <button id="aiSearchButton" class="w-full sm:w-1/3 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition">AI 智能搜尋 ✨</button>
+            </div>
+            <div class="mb-4 text-sm text-slate-600 mt-2" id="aiSearchStatus"></div>
+
+            <!-- New AI Q&A Feature -->
+            <div class="mb-6 flex flex-col sm:flex-row gap-2">
+                <input type="text" id="aiQuestionInput" placeholder="向 AI 提問群組規範問題..." class="w-full sm:w-2/3 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition">
+                <button id="askAiButton" class="w-full sm:w-1/3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition">向 AI 提問 ✨</button>
+            </div>
+            <div class="ai-qa-output mb-4" id="aiQaOutput"></div>
+            <!-- End New AI Q&A Feature -->
+
+            <!-- CONTENT SECTIONS -->
+            <div id="overview" class="content-section">
+                <h2 class="text-2xl font-bold text-slate-800 mb-4">規範總覽</h2>
+                <p class="mb-6 text-slate-600">本規範旨在建立一個和諧、安全且具建設性的社群環境。所有成員都應理解並遵守這些基本原則與規定。此互動平台將幫助您快速查閱與理解各項條款。</p>
+                <div class="grid md:grid-cols-2 gap-8 items-center">
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-800 mb-4">規範結構分佈</h3>
+                        <p class="text-slate-600 mb-4">本規範分為三大核心部分：「憲法」確立基本原則，「民法」規範成員間互動與組織運作，「刑法」則明定禁止之危害行為與罰則。各部分條文數量如下圖所示，反映了不同領域的規範重點。</p>
+                        <ul class="space-y-2 text-sm text-slate-600">
+                            <li class="flex items-center"><span class="h-3 w-3 rounded-full bg-sky-500 mr-2"></span>憲法 (9 條): 組織的基本大法與核心價值。</li>
+                            <li class="flex items-center"><span class="h-3 w-3 rounded-full bg-amber-500 mr-2"></span>民法 (11 條): 成員互動、會議與日常行為準則。</li>
+                            <li class="flex items-center"><span class="h-3 w-3 rounded-full bg-red-500 mr-2"></span>刑法 (9 條): 嚴重違規行為的定義與罰則。</li>
+                        </ul>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="rulesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="constitution" class="content-section">
+                <h2 class="text-2xl font-bold text-slate-800 mb-4">憲法 — 基本法與原則</h2>
+                <button class="summarize-section-btn bg-teal-700 hover:bg-teal-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition mb-4" data-section="constitution">總結本章重點 ✨</button>
+                <div class="section-summary-container" id="constitution-summary"></div>
+                <div class="space-y-2" id="constitution-content"></div>
+            </div>
+
+            <div id="civil" class="content-section">
+                <h2 class="text-2xl font-bold text-slate-800 mb-4">民法 — 成員間之關係與一般行為規範</h2>
+                <button class="summarize-section-btn bg-teal-700 hover:bg-teal-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition mb-4" data-section="civil">總結本章重點 ✨</button>
+                <div class="section-summary-container" id="civil-summary"></div>
+                <div class="space-y-2" id="civil-content"></div>
+            </div>
+
+            <div id="criminal" class="content-section">
+                <h2 class="text-2xl font-bold text-slate-800 mb-4">刑法 — 危害行為與法律責任</h2>
+                <button class="summarize-section-btn bg-teal-700 hover:bg-teal-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition mb-4" data-section="criminal">總結本章重點 ✨</button>
+                <div class="section-summary-container" id="criminal-summary"></div>
+                <div class="space-y-2" id="criminal-content"></div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- AI Search Modal -->
+    <div id="aiSearchModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold text-slate-800 mb-4">AI 智能搜尋</h3>
+            <p class="text-slate-600 mb-4">請輸入您想用 AI 智慧搜尋的關鍵字或問題：</p>
+            <input type="text" id="aiSearchInput" placeholder="輸入搜尋內容..." class="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition mb-4">
+            <div class="flex justify-center gap-4">
+                <button id="executeAISearch" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition">搜尋</button>
+                <button id="cancelAISearch" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold py-2 px-4 rounded-md shadow-md transition">取消</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const rules = {
+    constitution: [
+        { id: 'c1', title: '第一條 訂定宗旨', content: '本群規為「公共」（以下簡稱「本組織」）為確立並維護各所屬線上社群通訊群組（以下簡稱「本群組」）之共同秩序、保障成員基本權益、促進資訊與知識之良性交流與共享，並確保所有活動符合中華民國相關法律規定，本於民主、公平、公開及信任原則，特制定之。' },
+        { id: 'c2', title: '第二條 適用範圍', content: '本群規之適用範圍，涵蓋本組織所管理之一切線上通訊群組。凡自願或經邀請加入本群組之成員（以下簡稱「成員」），均視為明示同意並應嚴格遵守本群規所載明之一切條款。' },
+        { id: 'c3', title: '第三條 管理主體與職權', content: '1. 本群組之最高管理權力，隸屬於本組織所授權或指定之管理團隊（以下簡稱「管理團隊」）。<br>2. 管理團隊依據本群規，執行本群組之日常運作、內容審核、爭議調解、違規處理、群規修訂、以及其他為維護群組秩序與發展所必要之職權。<br>3. 管理團隊於執行職務時，應秉持客觀、公正、公開之原則，確保決策過程透明化並符合程序正義。' },
+        { id: 'c4', title: '第四條 成員基本權利', content: '1. <b>言論自由權：</b> 成員依循本群規，得於本群組內自由發表意見、參與討論，並享有資訊獲取之權利。惟此權利之行使，不得逾越法律規範及本群規之限制。<br>2. <b>隱私權：</b> 成員之個人資料及未經公開同意之私密通訊內容，應受合理保護，非經法定程序或本人同意，不得任意揭露。<br>3. <b>申訴權：</b> 成員如認自身權益受損或對管理團隊之決策有異議，得依本群規所定程序提出申訴。' },
+        { id: 'c5', title: '第五條 成員基本義務', content: '1. <b>遵守義務：</b> 成員有遵守中華民國相關法律及本群規所有條款之義務。<br>2. <b>配合義務：</b> 成員有義務配合管理團隊為維護群組秩序及安全所採取之各項管理措施。<br>3. <b>共同維護義務：</b> 成員應共同維護本群組之和諧氛圍與良好秩序，促進群組之永續發展。' },
+        { id: 'c6', title: '第六條 群規之解釋', content: '本群規條文遇有疑義時，由管理團隊為最終之解釋。' },
+        { id: 'c7', title: '第七條 群規之修訂', content: '1. 本群規之修訂權，專屬於管理團隊。<br>2. 管理團隊得視群組運作狀況、法律規定之變動或成員回饋，適時調整、增修本群規之條款。<br>3. 重大的修訂應提前公告，並得適度徵詢成員意見。修訂後之群規自公告日起生效。' },
+        { id: 'c8', title: '第八條 法律適用', content: '本群規未盡事宜，悉依中華民國相關法律規定辦理。凡本群規與中華民國法律規定有所牴觸者，以中華民國法律為準。' },
+        { id: 'c9', title: '第九條 施行日期', content: '本群規經「公共」核准後，自西元 [年] 年 [月] 月 [日] 起施行。' }
+    ],
+    civil: [
+        { id: 'm10', title: '第十條 公平交易與資訊共享', content: '1. 成員於本群組內發布或交換資訊，應秉持誠信原則，確保所提供資訊之真實性與正確性。<br>2. 嚴禁利用本群組進行任何形式之不正當競爭、商業詐欺、或違反公平交易法之行為。' },
+        { id: 'm11', title: '第十一條 隱私權之尊重與保護', content: '1. 成員未經他人合法授權或書面同意，不得擅自揭露、轉載、使用或公開他人之個人資料，包括但不限於姓名、電話、住址、電子郵件、社群帳號、以及其他足以識別個人身份之資訊。<br>2. 禁止惡意蒐集、竊取、利用或散布他人隱私資訊之行為。' },
+        { id: 'm12', title: '第十二條 智慧財產權之尊重', content: '1. 成員於本群組內發布任何內容（包括但不限於文字、圖片、影音、音訊、軟體、程式碼等），應確保其合法來源，並尊重他人之著作權、商標權、專利權及其他智慧財產權。<br>2. 未經權利人合法授權或同意，嚴禁擅自轉載、散布、重製、公開傳輸、公開播送、改作或以其他方式利用他人之智慧財產權內容。' },
+        { id: 'm13', title: '第十三條 商業行為與廣告限制', content: '1. 未經管理團隊事先明確之書面許可，成員嚴禁於本群組內發布任何形式之商業廣告、產品推銷、服務介紹、資金募集、連結導流、或其他以營利為目的之訊息或行為。<br>2. 本條款不適用於管理團隊為推廣本組織活動或合作夥伴關係而發布之合法商業資訊。' },
+        { id: 'm14', title: '第十四條 發言秩序與禮儀', content: '1. 成員發言應力求清晰、簡潔、有禮，並與群組主題相關。<br>2. 避免洗版、刷屏、大量重複發送訊息、惡意灌水、或以其他方式干擾群組正常通訊秩序之行為。<br>3. 成員間應理性溝通，避免使用不雅文字、粗俗言詞、情緒性字眼、或煽動性言論。' },
+        { id: 'm15', title: '第十五條 爭議之解決', content: '1. 成員間發生意見不合或爭議時，應優先嘗試理性溝通與協商。<br>2. 若爭議無法自行解決，或涉及本群規之解釋與適用，成員得向管理團隊提出，請求協調或介入處理。<br>3. 管理團隊於處理爭議時，應秉持客觀公正原則，並得要求相關成員提供證據或說明。' },
+        { id: 'm16', title: '第十六條 申訴機制', content: '成員如對管理團隊依本群規所為之處分或決策有異議，得於接獲處分或決策通知後 <b>[設定申訴時限，例如：24小時內]</b>，向管理團隊提出書面申訴。管理團隊應於接獲申訴後 <b>[設定處理時限，例如：3日內]</b>，進行審核並回覆。申訴以一次為限。' },
+        { id: 'm17', title: '第十七條 會議之召開', content: '1. 為研議本組織各項事務、協調群組管理事宜或處理重大爭議，管理團隊應<b>原則上於每週六或週日召開內部會議</b>。<br>2. 會議之召開應至少於 <b>[設定會議通知期限，例如：24小時]</b> 前發出通知，並應載明會議時間、地點（或線上會議連結）、主席人選及討論議程。<br>3. 遇有緊急或特殊情況，經全體管理團隊成員之半數以上同意，得不受前項通知期限之限制。' },
+        { id: 'm18', title: '第十八條 會議人員與職責', content: '1. <b>主席：</b> 由管理團隊成員互選或指派產生，負責主持會議、維持會議秩序、引導討論方向、對議案進行歸納總結、並確認會議決議。主席應確保會議流程順暢且符合本群規之規定。<br>2. <b>紀錄者：</b> 由管理團隊成員互選或指派產生，負責詳實記錄會議之時間、出席人員、討論內容要點、提案、決議過程、表決結果及重要發言。會議紀錄應於會後 <b>[設定紀錄提交期限，例如：24小時]</b> 內提交。<br>3. <b>提案人：</b> 負責提出會議議案，並於會議中對所提議案進行說明、解釋與答覆。<br>4. <b>列席人員（或稱為與會成員）：</b> 依通知出席會議者，應專注參與討論、理性表達意見、遵守會議秩序，並對決議事項負責。' },
+        { id: 'm19', title: '第十九條 會議流程', content: '1. <b>開會：</b> 主席宣布會議開始，並確認出席人員及會議議程。<br>2. <b>報告與討論：</b> 依議程順序進行各項提案之報告與討論。提案人應先行說明，與會人員得就提案內容發表意見或提出質疑。<br>3. <b>表決：</b> 針對討論成熟或意見分歧之議案，由主席提付表決。表決方式得採舉手、口頭同意、線上投票或其他經會議同意之方式。<br>4. <b>決議：</b> 議案經表決後，應依本組織之內部決議規定（例如：出席人數之半數以上同意或三分之二同意）形成決議。決議應由主席於會中確認，並載入會議紀錄。' },
+        { id: 'm20', title: '第二十條 決議之效力與執行', content: '1. 經合法程序通過之會議決議，對所有管理團隊成員及相關群組成員具有約束力。<br>2. 相關執行人員應依決議內容，負責推動與執行。<br>3. 會議決議應適時對外（例如在群組內）公告，以昭公信。' }
+    ],
+    criminal: [
+        { id: 'cr21', title: '第二十一條 網路安全與資料保護', content: '1. 嚴禁利用本群組之平台或任何相關資源，從事任何危害網路安全、竊取他人資料、破壞系統功能、或干擾他人正常使用網路之行為。<br>2. 禁止散布含有惡意程式碼、病毒、木馬程式、釣魚連結或其他具危害性之軟體或檔案。<br>3. 嚴禁未經授權之入侵、監聽、複製、刪除、或竄改任何數位資料或通訊內容。' },
+        { id: 'cr22', title: '第二十二條 誹謗與侮辱', content: '1. 嚴禁散布足以毀損他人名譽或信用之不實言論、圖片或影音。<br>2. 禁止以公然方式貶損他人之人格、尊嚴或社會評價之言論或行為。' },
+        { id: 'cr23', title: '第二十三條 煽動與仇恨言論', content: '1. 嚴禁發表或散布任何煽動犯罪、煽動對特定族群、宗教、性別、性向、身體機能、種族等進行歧視、仇恨、或暴力之言論。<br>2. 禁止教唆、煽惑他人從事任何違法行為。' },
+        { id: 'cr24', title: '第二十四條 散布不實資訊', content: '嚴禁在本群組內散布經查證為不實、虛假或誤導性之資訊，特別是足以引起社會恐慌、擾亂公共秩序、損害他人權益、影響公共安全或社會秩序，或意圖影響特定事實認定之內容。' },
+        { id: 'cr25', title: '第二十五條 妨害善良風俗與兒少保護', content: '1. 嚴禁散布任何猥褻、色情、暴力、血腥或其他違反公共秩序與善良風俗之資訊、圖片、影音或連結。<br>2. 嚴禁發布或要求任何涉及對兒童及少年性剝削、性侵害、或不法對待之內容。' },
+        { id: 'cr26', title: '第二十六條 詐欺與不正利得', content: '1. 嚴禁利用本群組進行任何形式之詐欺、詐騙、虛假陳述、或誘騙他人交付財物、個人資訊之行為。<br>2. 禁止發布任何非法傳銷、賭博、吸金、或任何違反「銀行法」、「證券交易法」、「期貨交易法」等金融法規之訊息。' },
+        { id: 'cr27', title: '第二十七條 違規認定與程序', content: '1. 違規行為之認定，由管理團隊根據本群規各條款，並綜合考量事實證據、行為情節、動機及對群組造成之影響程度，依法進行判斷。<br>2. 管理團隊於認定違規時，應盡力給予當事成員解釋或說明之機會，確保程序之公平性。' },
+        { id: 'cr28', title: '第二十八條 處理原則與罰則', content: '管理團隊對違反本群規之成員，將依其違規情節之輕重、是否為累犯、及對群組秩序或他人權益造成之影響，採取以下一種或數種處分措施：<br>1. <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">口頭警告</span><br>2. <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">刪除訊息</span><br>3. <span class="bg-orange-100 text-orange-800 px-2 py-1 rounded">限時禁言</span><br>4. <span class="bg-orange-100 text-orange-800 px-2 py-1 rounded">永久禁言</span><br>5. <span class="bg-red-100 text-red-800 px-2 py-1 rounded">強制移出群組</span><br>6. <span class="bg-red-100 text-red-800 px-2 py-1 rounded">移送法辦</span>' },
+        { id: 'cr29', title: '第二十九條 法律責任之自負', content: '成員於本群組內所為之一切言論及行為，其法律責任應由該成員自行承擔。本組織及管理團隊對於成員因違反本群規或法律而造成之任何損害，不負連帶責任。' }
+    ]
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const contentSections = document.querySelectorAll('.content-section');
+    const searchInput = document.getElementById('searchInput');
+    const aiSearchButton = document.getElementById('aiSearchButton');
+    const aiSearchStatusDiv = document.getElementById('aiSearchStatus');
+    const aiSearchModal = document.getElementById('aiSearchModal');
+    const aiSearchModalInput = document.getElementById('aiSearchInput');
+    const executeAISearchButton = document.getElementById('executeAISearch');
+    const cancelAISearchButton = document.getElementById('cancelAISearch');
+    const aiQuestionInput = document.getElementById('aiQuestionInput'); // New AI Q&A input
+    const askAiButton = document.getElementById('askAiButton'); // New AI Q&A button
+    const aiQaOutputDiv = document.getElementById('aiQaOutput'); // New AI Q&A output div
+    let rulesChartInstance = null; // To hold the Chart.js instance
+
+    // Function to call Gemini API for AI search query generation
+    async function generateAISearchTerms(userQuery) {
+        const prompt = `使用者正在搜尋群組管理規範，他們的查詢是：「${userQuery}」。
+        請您作為一個專業的群組規範分析師，提供2-3個與此查詢相關或意思相似的關鍵字或短語（不包含原始查詢），用繁體中文，並以逗號分隔，不需要任何額外的解釋。這些關鍵字或短語應有助於擴展搜尋範圍，找到更全面的結果。
+        例如：
+        用戶查詢：會議
+        輸出：開會流程, 議程, 決議
+        
+        用戶查詢：違規
+        輸出：處分, 罰則, 懲處
+        
+        用戶查詢：隱私
+        輸出：個人資料, 資料保護, 機密
+        
+        現在，請針對「${userQuery}」生成相關或相似的關鍵字/短語：`;
+
+        const apiKey = ""; // If you want to use models other than gemini-2.0-flash or imagen-3.0-generate-002, provide an API key here. Otherwise, leave this as-is.
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        try {
+            const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+            const payload = { contents: chatHistory };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+
+            if (result.candidates && result.candidates.length > 0 &&
+                result.candidates[0].content && result.candidates[0].content.parts &&
+                result.candidates[0].content.parts.length > 0) {
+                return result.candidates[0].content.parts[0].text.trim();
+            } else {
+                console.error('AI search term generation failed: Unexpected response structure.', result);
+                return ''; // Return empty string if AI fails for expanded terms
+            }
+        } catch (error) {
+            console.error('Error generating AI search terms:', error);
+            return ''; // Return empty string if API call fails
+        }
+    }
+
+
+    async function generateGeminiOutput(prompt, outputElement) {
+        outputElement.innerHTML = '<div class="loading-spinner"></div> AI 正在生成中，請稍候...';
+        const apiKey = ""; // If you want to use models other than gemini-2.0-flash or imagen-3.0-generate-002, provide an API key here. Otherwise, leave this as-is.
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        try {
+            const chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            const payload = { contents: chatHistory };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+
+            if (result.candidates && result.candidates.length > 0 &&
+                result.candidates[0].content && result.candidates[0].content.parts &&
+                result.candidates[0].content.parts.length > 0) {
+                const text = result.candidates[0].content.parts[0].text;
+                outputElement.innerHTML = text.replace(/\n/g, '<br>'); // Format newlines for HTML
+            } else {
+                outputElement.innerHTML = 'AI 生成失敗：無法取得回應內容。';
+                console.error('Gemini API response structure unexpected:', result);
+            }
+        } catch (error) {
+            outputElement.innerHTML = `AI 生成失敗：${error.message}。`;
+            console.error('Error calling Gemini API:', error);
+        }
+    }
+
+    function createAccordionItem(item) {
+        return `
+            <div class="border border-slate-200 rounded-lg" data-rule-id="${item.id}">
+                <button class="accordion-toggle w-full flex justify-between items-center text-left p-4 hover:bg-slate-50 transition">
+                    <span class="font-medium text-teal-700">${item.title}</span>
+                    <span class="transform transition-transform">▼</span>
+                </button>
+                <div class="accordion-content p-4 border-t border-slate-200 bg-slate-50">
+                    <p class="text-slate-700 leading-relaxed rule-content" data-original-html="${item.content}">${item.content}</p>
+                    <div class="mt-4 flex flex-col sm:flex-row gap-2">
+                        <button class="explain-rule-btn bg-teal-500 hover:bg-teal-600 text-white text-sm py-2 px-4 rounded-md shadow-sm transition">白話文解釋 ✨</button>
+                        <button class="scenario-btn bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded-md shadow-sm transition">情境範例 ✨</button>
+                    </div>
+                    <div class="gemini-output mt-4 hidden"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderContent() {
+        for (const key in rules) {
+            const container = document.getElementById(`${key}-content`);
+            if (container) {
+                container.innerHTML = rules[key].map(createAccordionItem).join('');
+            }
+        }
+        addAccordionListeners(); // Re-add listeners for accordions
+        addGeminiButtonsListeners(); // Add listeners for new Gemini buttons
+        addSummarizeSectionListeners(); // Add listeners for summarize buttons
+    }
+    
+    function addAccordionListeners() {
+        document.querySelectorAll('.accordion-toggle').forEach(button => {
+            button.addEventListener('click', () => {
+                const content = button.nextElementSibling;
+                const arrow = button.querySelector('span:last-child');
+                // Toggle accordion visibility
+                if (content.style.display === 'block') {
+                    content.style.display = 'none';
+                    arrow.style.transform = 'rotate(0deg)';
+                } else {
+                    content.style.display = 'block';
+                    arrow.style.transform = 'rotate(180deg)';
+                }
+            });
+        });
+    }
+
+    function addGeminiButtonsListeners() {
+        document.querySelectorAll('.explain-rule-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const ruleContainer = e.target.closest('[data-rule-id]');
+                const ruleTitle = ruleContainer.querySelector('.accordion-toggle span:first-child').textContent;
+                const ruleContentElement = ruleContainer.querySelector('.rule-content');
+                const ruleContent = ruleContentElement.dataset.originalHtml || ruleContentElement.innerHTML; // Use original or current HTML
+                const geminiOutputDiv = ruleContainer.querySelector('.gemini-output');
+
+                geminiOutputDiv.classList.remove('hidden'); // Show output div
+                
+                // Prompt adjusted for a junior high student from Tainan Mingde Junior High
+                const prompt = `請用簡單易懂的白話文解釋以下群組規範條款，並想像您正在對一個國中一年級的學生（例如小秋，來自台南民德國中，可能不擅長數學、英文單字，國語也不是強項，離差智商110）解釋。請用簡潔、清晰的語言，避免複雜的法律術語，並可以多用生活化的例子。
+                條款標題：${ruleTitle}
+                條款內容：${ruleContent.replace(/<br>/g, '\n')}`; // Replace <br> with \n for prompt
+
+                await generateGeminiOutput(prompt, geminiOutputDiv);
+            });
+        });
+
+        document.querySelectorAll('.scenario-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const ruleContainer = e.target.closest('[data-rule-id]');
+                const ruleTitle = ruleContainer.querySelector('.accordion-toggle span:first-child').textContent;
+                const ruleContentElement = ruleContainer.querySelector('.rule-content');
+                const ruleContent = ruleContentElement.dataset.originalHtml || ruleContentElement.innerHTML; // Use original or current HTML
+                const geminiOutputDiv = ruleContainer.querySelector('.gemini-output');
+
+                geminiOutputDiv.classList.remove('hidden'); // Show output div
+
+                const prompt = `請為以下群組規範條款生成一個實際的應用情境範例，情境要清晰具體，並能幫助理解該條款。請從一個國中一年級學生（例如小秋，來自台南民德國中）的角度來描述情境，讓她更容易理解。
+                條款標題：${ruleTitle}
+                條款內容：${ruleContent.replace(/<br>/g, '\n')}`; // Replace <br> with \n for prompt
+
+                await generateGeminiOutput(prompt, geminiOutputDiv);
+            });
+        });
+    }
+
+    function addSummarizeSectionListeners() {
+        document.querySelectorAll('.summarize-section-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const sectionId = e.target.dataset.section; // Get section ID from data attribute
+                const sectionRules = rules[sectionId];
+                const summaryContainer = document.getElementById(`${sectionId}-summary`);
+
+                if (sectionRules && sectionRules.length > 0) {
+                    summaryContainer.classList.remove('hidden'); // Show summary container
+
+                    let combinedContent = '';
+                    sectionRules.forEach(rule => {
+                        combinedContent += `條款標題：${rule.title}\n條款內容：${rule.content.replace(/<br>/g, '\n')}\n\n`;
+                    });
+
+                    const prompt = `請針對以下群組規範條款的內容，用簡潔扼要的白話文進行總結，大約200字左右。請想像您正在為一個國中一年級的學生解釋。
+                    \n\n${combinedContent}\n\n總結：`;
+
+                    await generateGeminiOutput(prompt, summaryContainer);
+                } else {
+                    summaryContainer.classList.remove('hidden');
+                    summaryContainer.innerHTML = '此章節目前沒有條款可供總結。';
+                }
+            });
+        });
+    }
+
+    // Function to render the donut chart
+    function renderChart() {
+        const ctx = document.getElementById('rulesChart').getContext('2d');
+        if (rulesChartInstance) {
+            rulesChartInstance.destroy(); // Destroy existing chart instance if any
+        }
+        rulesChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['憲法', '民法', '刑法'],
+                datasets: [{
+                    data: [
+                        rules.constitution.length,
+                        rules.civil.length,
+                        rules.criminal.length
+                    ],
+                    backgroundColor: [
+                        'rgb(14 165 233)', // sky-500
+                        'rgb(245 158 11)',  // amber-500
+                        'rgb(239 68 68)'   // red-500
+                    ],
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                    label += context.parsed + ' 條';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function switchTab(tab) {
+        tabButtons.forEach(button => {
+            button.classList.remove('tab-active');
+        });
+        document.querySelector(`.tab-button[data-tab="${tab}"]`).classList.add('tab-active');
+
+        contentSections.forEach(section => {
+            section.classList.remove('active');
+        });
+        document.getElementById(tab).classList.add('active');
+        
+        if (tab === 'overview') {
+            renderChart();
+        }
+    }
+
+    // Function to reset search highlights and accordion states
+    function resetSearchState(shouldSwitchToOverview = true) {
+        for (const categoryKey in rules) {
+            const categoryRules = rules[categoryKey];
+            for (const item of categoryRules) {
+                const ruleContainer = document.querySelector(`[data-rule-id="${item.id}"]`);
+                if (ruleContainer) {
+                    const contentElement = ruleContainer.querySelector('.rule-content');
+                    const accordionContent = ruleContainer.querySelector('.accordion-content');
+                    const accordionToggleArrow = ruleContainer.querySelector('.accordion-toggle span:last-child');
+                    const geminiOutputDiv = ruleContainer.querySelector('.gemini-output');
+
+                    if (contentElement && accordionContent && accordionToggleArrow) {
+                        // Restore original content by removing highlights
+                        if (contentElement.dataset.originalHtml) {
+                            contentElement.innerHTML = contentElement.dataset.originalHtml;
+                        }
+                        // Close all accordions
+                        accordionContent.style.display = 'none';
+                        accordionToggleArrow.style.transform = 'rotate(0deg)';
+
+                        // Hide and clear AI output
+                        if (geminiOutputDiv) {
+                            geminiOutputDiv.classList.add('hidden');
+                            geminiOutputDiv.innerHTML = '';
+                        }
+                    }
+                }
+            }
+        }
+        // Also hide and clear section summaries
+        document.querySelectorAll('.section-summary-container').forEach(container => {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+        });
+        // Hide and clear AI Q&A output
+        aiQaOutputDiv.classList.add('hidden');
+        aiQaOutputDiv.innerHTML = '';
+
+
+        aiSearchStatusDiv.innerHTML = ''; // Clear AI search status message
+        if (shouldSwitchToOverview) {
+             switchTab('overview'); // Go back to overview tab
+        }
+    }
+
+    // Event listener for the main search input
+    searchInput.addEventListener('input', (e) => {
+        const userQuery = e.target.value.trim();
+        // If the main search input is used, clear AI search status
+        aiSearchStatusDiv.innerHTML = ''; 
+        // Perform direct text search
+        performTextSearch(userQuery.toLowerCase());
+    });
+
+    // Event listener for tab buttons
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetTab = button.dataset.tab;
+            searchInput.value = ''; // Clear main search input
+            aiQuestionInput.value = ''; // Clear AI question input
+            resetSearchState(false); // Reset highlights and accordions, but DON'T switch tab to overview
+
+            // Add a small delay before switching the tab to allow rendering
+            setTimeout(() => {
+                switchTab(targetTab); 
+            }, 50); // 50ms delay
+        });
+    });
+
+    // Event listener for the new AI Search Button
+    aiSearchButton.addEventListener('click', () => {
+        aiSearchModalInput.value = ''; // Clear modal input
+        aiSearchModal.classList.remove('hidden'); // Show the modal
+        aiSearchModalInput.focus(); // Focus input for immediate typing
+    });
+
+    // Event listener for execute AI search button in modal
+    executeAISearchButton.addEventListener('click', async () => {
+        const userQuery = aiSearchModalInput.value.trim();
+        aiSearchModal.classList.add('hidden'); // Hide modal immediately
+
+        if (userQuery.length > 0) {
+            searchInput.value = ''; // Clear main search input for AI search mode
+            aiQuestionInput.value = ''; // Clear AI question input
+            resetSearchState(false); // Reset highlights but stay on current tab initially
+
+            aiSearchStatusDiv.innerHTML = '<div class="loading-spinner"></div> AI 正在思考中，請稍候...';
+            const aiGeneratedTerms = await generateAISearchTerms(userQuery.toLowerCase());
+            
+            // Combine original query (if needed) and AI-generated terms
+            let combinedSearchTerms = userQuery.toLowerCase();
+            if (aiGeneratedTerms.length > 0) {
+                combinedSearchTerms += `,${aiGeneratedTerms}`;
+            }
+            
+            // Display AI-generated suggestions (if any)
+            const displayTerms = aiGeneratedTerms.split(',').filter(term => term.length > 0).map(term => term.trim()).join(', ');
+            if (displayTerms) {
+                aiSearchStatusDiv.innerHTML = `AI 擴展搜尋詞：<span class="font-medium text-teal-700">${displayTerms}</span>`;
+            } else {
+                aiSearchStatusDiv.innerHTML = `AI 未擴展，直接搜尋：「<span class="font-medium text-teal-700">${userQuery}</span>」`;
+            }
+
+            performTextSearch(combinedSearchTerms); // Perform search with combined terms
+
+        } else {
+            // If modal input is empty, just reset
+            resetSearchState(true);
+        }
+    });
+
+    // Event listener for cancel AI search button in modal
+    cancelAISearchButton.addEventListener('click', () => {
+        aiSearchModal.classList.add('hidden'); // Hide modal
+        searchInput.value = ''; // Clear main search input
+        aiQuestionInput.value = ''; // Clear AI question input
+        resetSearchState(true); // Reset everything and go to overview
+    });
+
+    // New Event Listener for "Ask AI" button
+    askAiButton.addEventListener('click', async () => {
+        const userQuestion = aiQuestionInput.value.trim();
+        aiSearchStatusDiv.innerHTML = ''; // Clear AI search status
+        searchInput.value = ''; // Clear main search input
+
+        if (userQuestion.length > 0) {
+            aiQaOutputDiv.classList.remove('hidden'); // Show AI Q&A output div
+            // Construct the full context for the LLM
+            let fullRulesContext = '';
+            for (const category in rules) {
+                fullRulesContext += `### ${category} Rules:\n`;
+                rules[category].forEach(rule => {
+                    fullRulesContext += `${rule.title}: ${rule.content.replace(/<br>/g, '\n')}\n\n`;
+                });
+            }
+
+            const prompt = `您是一個關於群組管理規範的專家，請根據以下提供的規範內容，簡潔地回答使用者提出的問題。
+            如果問題的答案無法從提供的規範中找到，請明確表示「此問題無法從現有規範中獲得答案」。
+            請用繁體中文回答。
+
+            群組規範內容：
+            ${fullRulesContext}
+
+            使用者問題：
+            ${userQuestion}`;
+
+            await generateGeminiOutput(prompt, aiQaOutputDiv);
+        } else {
+            aiQaOutputDiv.classList.add('hidden'); // Hide if no question
+            aiQaOutputDiv.innerHTML = '';
+        }
+    });
+
+
+    // Encapsulate the existing text search logic into a new function
+    function performTextSearch(searchQuery) {
+        const searchTerms = searchQuery.split(',').map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
+        if (searchTerms.length === 0) {
+            resetSearchState(true); // If search query becomes empty, reset state
+            return;
+        }
+
+        let firstMatchedTab = null;
+        let firstMatchedElement = null; // Store the first element found for scrolling
+
+        for (const categoryKey in rules) {
+            const categoryRules = rules[categoryKey];
+            for (const item of categoryRules) {
+                const fullText = (item.title + ' ' + item.content).toLowerCase(); 
+                let isMatched = false;
+                for (const term of searchTerms) {
+                    if (fullText.includes(term)) {
+                        isMatched = true;
+                        break; // Found a match, no need to check other terms for this item
+                    }
+                }
+
+                const ruleContainer = document.querySelector(`[data-rule-id="${item.id}"]`);
+                if (ruleContainer) {
+                    const contentElement = ruleContainer.querySelector('.rule-content');
+                    const accordionContent = ruleContainer.querySelector('.accordion-content');
+                    const accordionToggleArrow = ruleContainer.querySelector('.accordion-toggle span:last-child');
+                    const geminiOutputDiv = ruleContainer.querySelector('.gemini-output');
+
+                    if (contentElement && accordionContent && accordionToggleArrow) {
+                        // Ensure original HTML is stored before modifying
+                        if (contentElement.dataset.originalHtml === undefined) {
+                            contentElement.dataset.originalHtml = contentElement.innerHTML;
+                        }
+
+                        if (isMatched) {
+                            if (!firstMatchedTab) {
+                                firstMatchedTab = categoryKey;
+                            }
+                            if (!firstMatchedElement) {
+                                firstMatchedElement = ruleContainer;
+                            }
+
+                            // Apply highlight for ALL search terms
+                            let highlightedHtml = contentElement.dataset.originalHtml;
+                            for (const term of searchTerms) {
+                                const regex = new RegExp(term, 'gi'); // 'gi' for global and case-insensitive
+                                highlightedHtml = highlightedHtml.replace(regex, `<span class="highlight">$&</span>`);
+                            }
+                            contentElement.innerHTML = highlightedHtml;
+
+                            accordionContent.style.display = 'block';
+                            accordionToggleArrow.style.transform = 'rotate(180deg)';
+
+                            if (geminiOutputDiv) {
+                                geminiOutputDiv.classList.add('hidden'); // Hide AI output during search
+                                geminiOutputDiv.innerHTML = ''; // Clear previous AI output
+                            }
+                        } else {
+                            // If no match, ensure it's reset
+                            contentElement.innerHTML = contentElement.dataset.originalHtml;
+                            accordionContent.style.display = 'none';
+                            accordionToggleArrow.style.transform = 'rotate(0deg)';
+                            if (geminiOutputDiv) {
+                                geminiOutputDiv.classList.add('hidden');
+                                geminiOutputDiv.innerHTML = '';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (firstMatchedTab) {
+            switchTab(firstMatchedTab);
+            if (firstMatchedElement) {
+                setTimeout(() => {
+                    firstMatchedElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100); // Small delay to allow tab content to render
+            }
+        }
+    }
+
+    // Initial render
+    renderContent();
+    switchTab('overview'); // Set initial tab to overview
+});
+</script>
+</body>
+</html>
